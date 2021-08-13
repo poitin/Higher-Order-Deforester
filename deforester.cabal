@@ -1,0 +1,62 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.33.0.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: 8be7e8c661b836ddddeccfc68f3541d51f05377bbc68ef78244c5b237c60f266
+
+name:           deforester
+version:        0.1.0.0
+description:    Please see the README on GitHub at <https://github.com/githubuser/Higher-Order-Deforester#readme>
+homepage:       https://github.com/poitin/Higher-Order-Deforester#readme
+bug-reports:    https://github.com/poitin/Higher-Order-Deforester/issues
+author:         Geoff Hamilton
+maintainer:     hamilton@computing.dcu.ie
+copyright:      2021 Geoff Hamilton
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.md
+    ChangeLog.md
+
+source-repository head
+  type: git
+  location: https://github.com/poitin/Higher-Order-Deforester
+
+library
+  exposed-modules:
+      Exception
+      Term
+      Trans
+  other-modules:
+      Paths_deforester
+  hs-source-dirs:
+      src
+  build-depends:
+      base >=4.7 && <5
+    , parsec
+    , pretty
+    , directory
+    , process
+  default-language: Haskell2010
+
+executable deforester
+  main-is: Main.hs
+  other-modules:
+      Exception
+      Term
+      Trans
+  hs-source-dirs:
+      src
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.7 && <5
+    , parsec
+    , pretty
+    , directory
+    , process
+    , deforester
+  default-language: Haskell2010
+

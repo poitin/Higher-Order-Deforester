@@ -2,66 +2,107 @@ module Trans where
 
 import Term
 import Exception
-import Data.List
+import Prelude hiding ((<>))
 import Data.Maybe
-import Debug.Trace
+import Data.List
 
-def (t,d) = returnval (deforest t EmptyCtx (free t) [] d)
+deforest (t,d) = let e = map (processFun d) d
+                     t' = returnval (trans 1 t EmptyCtx (free t) [] d e)
+                     (t'',d',e') = residualise t' d e
+                 in  (t'',d')
 
-deforest t (ApplyCtx k []) fv m d = deforest t k fv m d
-deforest (Free x) k fv m d = deforestCtx (Free x) k fv m d
-deforest (Lambda x t) EmptyCtx fv m d = let x' = rename fv x
-                                        in do
-                                           t' <- deforest (concrete x' t) EmptyCtx (x':fv) m d
-                                           return (Lambda x (abstract t' x'))
-deforest (Lambda x t) (ApplyCtx k (t':ts)) fv m d = deforest (subst t' t) (ApplyCtx k ts) fv m d
-deforest (Lambda x t) (CaseCtx k bs) fv m d = error "Unapplied function in case selector"
-deforest (Con c ts) EmptyCtx fv m d = do
-                                      ts' <- mapM (\t -> deforest t EmptyCtx fv m d) ts
-                                      return (Con c ts')
-deforest (Con c ts) (ApplyCtx k ts') fv m d = error ("Constructor application is not saturated: "++show (place (Con c ts) (ApplyCtx k ts')))
-deforest (Con c ts) (CaseCtx k bs) fv m d = case find (\(c',xs,t) -> c==c' && length xs == length ts) bs of
-                                               Nothing -> error ("No matching pattern in case for term:\n\n"++show (Case (Con c ts) bs))
-                                               Just (c',xs,t) -> deforest (foldr subst t ts) k fv m d
-deforest (Fun f) k fv m d | f `notElem` fst(unzip d) = deforestCtx (Fun f) k fv m d
-deforest (Fun f) k fv m d = let t = place (Fun f) k
-                            in case find (\(f,(xs,t')) -> isJust (inst t' t)) m of
-                                  Just (f,(xs,t')) -> let Just s = inst t' t
-                                                      in  deforest (makeLet s (Apply (Fun f) (map Free xs))) EmptyCtx fv m d
-                                  Nothing -> case find (\(f,(xs,t')) -> not (null (embed t' t))) m of
-                                                Just (f,_) -> throw (f,t)
-                                                Nothing -> let fs = fst(unzip(m++d))
-                                                               f = rename fs "f"
-                                                               xs = free t
-                                                               (t',d') = unfold t (f:fs) d
-                                                               handler (f',t') = if   f==f'
-                                                                                 then let (t'',s1,s2) = generalise t t'
-                                                                                      in  deforest (makeLet s1 t'') EmptyCtx fv m d
-                                                                                 else throw (f',t')
-                                                           in  do t'' <- handle (deforest t' EmptyCtx fv ((f,(xs,t)):m) d') handler
-                                                                  return (if f `elem` funs t'' then Letrec f xs (foldl abstract (abstractFun t'' f) xs) (Apply (Bound 0) (map Free xs)) else t'')
+-- level n transformer
 
-deforest (Apply t ts) k fv m d = deforest t (ApplyCtx k ts) fv m d
-deforest (Case t bs) k fv m d = deforest t (CaseCtx k bs) fv m d
-deforest (Let x t u) k fv m d = let x' = rename fv x
-                                in do
-                                   t' <- deforest t EmptyCtx fv m d
-                                   u' <- deforest (concrete x' u) k (x':fv) m d
-                                   return (subst t' (abstract u' x'))
-deforest (Letrec f xs t u) k fv m d = let f' = rename (fst(unzip(m++d))) f
-                                          t' = concreteFun f' (foldr concrete t xs)
-                                          u' = concreteFun f' u
-                                      in  deforest u' k fv m ((f',(xs,t')):d)
+trans 0 t k fv m d e = return (place t k)
 
-deforestCtx t EmptyCtx fv m d = return t
-deforestCtx t (ApplyCtx k ts) fv m d = do
-                                       ts' <- mapM (\t -> deforest t EmptyCtx fv m d) ts
-                                       deforestCtx (Apply t ts') k fv m d
-deforestCtx t (CaseCtx k bs) fv m d = do
-                                      bs' <- mapM (\(c,xs,t) -> let fv' = foldr (\x fv -> let x' = rename fv x in x':fv) fv xs
-                                                                    xs' = take (length xs) fv'
-                                                                in do
-                                                                   t' <- deforest (foldr concrete t xs') k fv' m d
-                                                                   return (c,xs,foldl abstract t' xs')) bs
-                                      return (Case t bs')
+trans n (Free x) k fv m d e = transCtx n (Free x) k fv m d e
+trans n (Lambda x t) EmptyCtx fv m d e = let x' = renameVar fv x
+                                         in do
+                                            t' <- trans n (concrete x' t) EmptyCtx (x':fv) m d e
+                                            return (Lambda x (abstract t' x'))
+trans n (Lambda x t) (ApplyCtx k u) fv m d e = trans n (subst u t) k fv m d e
+trans n (Lambda x t) (CaseCtx k bs) fv m d e = error "Unapplied function in case selector"
+trans n (Con c ts) EmptyCtx fv m d e = do
+                                       ts' <- mapM (\t -> trans n t EmptyCtx fv m d e) ts
+                                       return (Con c ts')
+trans n (Con c ts) (ApplyCtx k u) fv m d e = error ("Constructor application is not saturated: "++show (place (Con c ts) (ApplyCtx k u)))
+trans n (Con c ts) (CaseCtx k bs) fv m d e = case find (\(c',xs,t) -> c==c' && length xs == length ts) bs of
+                                                Nothing -> error ("No matching pattern in case for term:\n\n"++show (Case (Con c ts) bs))
+                                                Just (c',xs,t) -> trans n (foldr subst t ts) k fv m d e
+trans n (Apply t u) k fv m d e = trans n t (ApplyCtx k u) fv m d e
+trans n (Fun f) k fv m d e = let t = returnval (trans (n-1) (Fun f) k fv [] d e)
+                                 (t',d',e') = residualise t d e
+                              in  case [(l,u,s) | (l,u) <- m, s <- inst u t'] of
+                                     ((l,u,s):ls) -> do
+                                                     s' <- mapM (\(x,t) -> do
+                                                                           t' <- trans n t EmptyCtx fv m d e
+                                                                           return (x,t')) s
+                                                     return (makeLet' s' (Fold l u))
+                                     [] -> case [l | (l,u) <- m, isEmbedding u t'] of
+                                              (l:ls) -> throw (l,t')
+                                              [] -> let l = renameVar (map fst m) "l"
+                                                        handler (l',u) = if   l==l'
+                                                                         then let (u',s1,s2) = generaliseTerm t' u
+                                                                              in  trans n (makeLet s1 u') EmptyCtx fv m d' e'
+                                                                         else throw (l',u)
+                                                    in  do
+                                                        u <- handle (trans n (unfold(t',d')) EmptyCtx fv ((l,t'):m) d' e') handler
+                                                        return (if l `elem` folds u then Unfold l t' u else u)
+trans n (Case t bs) k fv m d e = trans n t (CaseCtx k bs) fv m d e
+trans n (Let x t u) k fv m d e = let x' = renameVar fv x
+                                 in do
+                                    t' <- trans n t EmptyCtx fv m d e
+                                    u' <- trans n (concrete x' u) k (x':fv) m d e
+                                    return (Let x t' (abstract u' x'))
 
+transCtx n t EmptyCtx fv m d e = return t
+transCtx n t (ApplyCtx k u) fv m d e = do
+                                       u' <- trans n u EmptyCtx fv m d e
+                                       transCtx n (Apply t u') k fv m d e
+transCtx n t (CaseCtx k bs) fv m d e = do
+                                       bs' <- mapM (\(c,xs,t) -> let fv' = renameVars fv xs
+                                                                     xs' = take (length xs) fv'
+                                                                 in do
+                                                                    t' <- trans n (foldr concrete t xs') k fv' m d e
+                                                                    return (c,xs,foldl abstract t' xs')) bs
+                                       return (Case t bs')
+
+-- Program residualisation
+
+residualise t = residualise' [] t (free t)
+
+residualise' ls (Free x) fv d e = (Free x,d,e)
+residualise' ls (Bound i) fv d e = (Bound i,d,e)
+residualise' ls (Lambda x t) fv d e = let x' = renameVar fv x
+                                          (t',d',e') = residualise' ls (concrete x' t) (x':fv) d e
+                                      in  (Lambda x (abstract t' x'),d',e')
+residualise' ls (Con c ts) fv d e = let ((d',e'),ts') = mapAccumL (\(d,e) t -> let (t',d',e') = residualise' ls t fv d e
+                                                                               in  ((d',e'),t')) (d,e) ts
+                                    in  (Con c ts',d',e')
+residualise' ls (Apply t u) fv d e = let (t',d',e') = residualise' ls t fv d e
+                                         (u',d'',e'') = residualise' ls u fv d' e'
+                                     in  (Apply t' u',d'',e'')
+residualise' ls (Fun f) fv d e = (Fun f,d,e)
+residualise' ls (Case t bs) fv d e = let (t',d',e') = residualise' ls t fv d e
+                                         ((d'',e''),bs') = mapAccumL (\(d,e) (c,xs,t) -> let fv' = renameVars fv xs
+                                                                                             xs' = take (length xs) fv'
+                                                                                             (t',d',e') = residualise' ls (foldr concrete t xs') fv' d e
+                                                                                         in  ((d',e'),(c,xs,foldl abstract t' xs'))) (d',e') bs
+                                     in  (Case t' bs',d'',e'')
+residualise' ls (Let x t u) fv d e = let x' = renameVar fv x
+                                         (t',d',e') = residualise' ls t fv d e
+                                         (u',d'',e'') = residualise' ls (concrete x' u) (x':fv) d' e'
+                                     in  (subst t' (abstract u' x'),d'',e'')
+residualise' ls t'@(Unfold l t u) fv d e = case [rename r u | (u,u') <- e, r <- funRenaming u' t'] of
+                                              (t:ts) -> (t,d,e)
+                                              [] -> case [rename r u' | (u,u') <- e, r <- funEmbedding u' t'] of
+                                                       (t:ts) -> let (t'',s1,s2) = funGeneralise t t'
+                                                                 in  residualise' ls (makeLet s2 t'') fv d e
+                                                       [] -> let f = renameVar (fv ++ map fst d) "f"
+                                                                 xs = free u
+                                                                 t'' = foldl (\t x -> Apply t (Free x)) (Fun f) xs
+                                                                 (u',d',e') = residualise' ((l,(t'',t)):ls) u (f:fv) d e
+                                                             in  (t'',(f,(xs,foldl abstract u' xs)):d',(t'',t'):e')
+residualise' ls (Fold l t) fv d e = case [instantiate s t' | (l',(t',u)) <- ls, l==l', s <- inst u t] of
+                                       (t:ts) -> (t,d,e)
+                                       [] -> residualise' ls t fv d e
