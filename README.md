@@ -1,6 +1,6 @@
 # Higher-Order-Deforester
 
-An implementation of the higher-order deforestation as described in the paper "Higher-Order Deforestation"
+An implementation of the higher-order deforestation as described in the paper ["Higher-Order Deforestation"](https://link.springer.com/chapter/10.1007%2F3-540-61756-6_87)
 
 The implementation can be built and executed using stack.
 
