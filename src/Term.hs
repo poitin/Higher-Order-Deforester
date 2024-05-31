@@ -81,7 +81,7 @@ matchCase bs bs' = length bs == length bs' && all (\((c,xs,t),(c',xs',t')) -> c 
 
 renaming t u = renaming' t u []
 
-renaming' (Free x) (Free x') r = if   x `elem` map fst r || x' `elem` map snd r
+renaming' (Free x) (Free x') r = if   x `elem` map fst r 
                                  then [r | (x,x') `elem` r]
                                  else [(x,x'):r] 
 renaming' (Bound i) (Bound i') r | i==i' = [r]
