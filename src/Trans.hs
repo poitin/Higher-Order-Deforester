@@ -71,26 +71,25 @@ defCtx t (CaseCtx k bs) fv m s1 s2 d e = do
                                          bs' <- defBranches bs k fv m s1 s2 d e
                                          return (Case t bs')
 
-defFold [] fv m s1 s2 d e = return []
-defFold ((x,t):s) fv m s1 s2 d e = do
-                                   t' <- def t EmptyCtx fv m s1 s2 d e
-                                   s' <- defFold s fv m s1 s2 d (unfolds t'++e)
-                                   return ((x,t'):s')
+defLet [] u fv m s1 s2 d e = return u
+defLet ((x,t):s) u fv m s1 s2 d e = do
+                                    t' <- def t EmptyCtx fv m s1 s2 d e
+                                    u' <- defLet s u (x:fv) m s1 s2 d (unfolds t'++e)
+                                    return (Let x t' (abstract u' x))
 
 fold t fv m s1 s2 d e = case [(u,t',r) | (u,t') <- m, r <- embedding t' t] of
                            ((u,t',r):_) -> let (u',s1',s2') = generalise t' t fv s1 s2
                                            in  case renaming t' u' of
                                                   [] -> throw (u,(u',s1',s2'))
-                                                  (r':_) -> do
-                                                           s <- defFold s2' fv m s1 s2 d e
-                                                           return (Fold (instantiate s (rename r (rename r' u))))
+                                                  (r':_) -> defLet s2' (Fold (rename r (rename r' u))) fv m s1 s2 d e
                            [] -> let f = renameVar (fv ++ [f | (Unfold t _ _) <- e, let Fun f = redex t]) "f"
                                      xs = free t
                                      u = foldl (\t x -> Apply t (Free x)) (Fun f) xs
                                      handler (u',(t',s1',s2')) = if   u==u'
-                                                                 then def (makeLet s1' t') EmptyCtx (f:fv) m (s1++s1') (s2++s2') d e                                                               
+                                                                 then do
+                                                                      t'' <- def t' EmptyCtx (fv++map fst s1') m s1 s2 d e
+                                                                      defLet s1' t'' (f:fv) m (s1++s1') (s2++s2') d (unfolds t''++e)                                                           
                                                                  else throw (u',(t',s1',s2'))
                                    in  do
                                        t' <- handle (def (unfold t d) EmptyCtx (f:fv) ((u,t):m) s1 s2 d e) handler
                                        return (Unfold u t t')
-
