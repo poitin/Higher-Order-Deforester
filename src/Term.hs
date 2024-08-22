@@ -250,14 +250,17 @@ folds (Fold t) = redex t:folds t
 
 unfolds (Free x) = []
 unfolds (Bound i) = []
-unfolds (Lambda x t) = unfolds t
+unfolds (Lambda x t) = let x' = renameVar (free t) x
+                       in  unfolds (concrete x' t)
 unfolds (Con c ts) = concatMap unfolds ts
 unfolds (Apply t u) = unfolds t ++ unfolds u
 unfolds (Fun f) = []
-unfolds (Case t bs) = unfolds t ++ concatMap (\(c,xs,t) -> unfolds t) bs
-unfolds (Let x t u) = unfolds t  ++ unfolds u
+unfolds (Case t bs) = unfolds t ++ concatMap (\(c,xs,t) -> let xs' = renameVars (free t) xs
+                                                           in  unfolds (foldr concrete t xs')) bs
+unfolds (Let x t u) = let x' = renameVar (free u) x
+                      in  unfolds t  ++ unfolds (concrete x' u)
 unfolds t@(Unfold _ _ u) = t:unfolds u
-unfolds (Fold t) = unfolds t
+unfolds (Fold t) = []
 
 -- functions in a program
 
