@@ -244,7 +244,7 @@ folds (Fun f) = []
 folds (Case t bs) = folds t ++ concatMap (\(c,xs,t) -> folds t) bs
 folds (Let x t u) = folds t  ++ folds u
 folds (Unfold t u v) = filter (/=redex t) (folds v)
-folds (Fold t) = redex t:folds t
+folds (Fold t) = [redex t]
 
 -- unfolds in a tree
 
